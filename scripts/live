@@ -1,0 +1,141 @@
+#!/bin/sh
+
+parse_cmdline_flag() {
+	for x in $(cat /proc/cmdline); do
+		case $x in
+			$1)
+				return 0
+			;;
+		esac
+	done
+
+	return 1
+}
+
+parse_cmdline_value() {
+	for x in $(cat /proc/cmdline); do
+		case $x in
+			$1=*)
+				echo ${x#$1=}
+				return 0
+			;;
+		esac
+	done
+
+	return 1
+}
+
+resolve_device() {
+	for _ in $(seq 10)
+	do
+		local DEV=
+
+		case $1 in
+			UUID=*)
+				DEV=$(blkid -U "${1#UUID=}")
+			;;
+			LABEL=*)
+				DEV=$(blkid -L "${1#LABEL=}")
+			;;
+			/dev/*)
+				DEV=$1
+			;;
+			*)
+				echo $1 && return 0
+			;;
+		esac
+
+		test -n "$DEV" && test -e "$DEV" && echo $DEV && return 0
+
+		sleep 1
+	done
+
+	echo "$1 device not found"
+	exit 1
+}
+
+mountroot() {
+	run_scripts /scripts/local-top
+
+	local PREFIX=$(parse_cmdline_value prefix)
+	test -z "$PREFIX" && PREFIX=livedeb
+
+	local MEDIA_DEV=$(parse_cmdline_value media-dev)
+	local MEDIA_FS=$(parse_cmdline_value media-fs)
+	local MEDIA_OPTS=$(parse_cmdline_value media-opts)
+	test -z "${MEDIA_FS}"    && MEDIA_FS=auto
+	test -z "${MEDIA_OPTS}"  && MEDIA_OPTS='ro'
+
+	local PERSIST_DEV=$(parse_cmdline_flag toram || parse_cmdline_value persist-dev)
+	local PERSIST_FS=$(parse_cmdline_value persist-fs)
+	local PERSIST_OPTS=$(parse_cmdline_value persist-opts)
+	test -z "${PERSIST_FS}"   && PERSIST_FS=auto
+	test -z "${PERSIST_OPTS}" && PERSIST_OPTS='rw'
+	test -z "${PERSIST_DEV}"  && PERSIST_DEV=none PERSIST_FS=tmpfs PERSIST_OPTS='size=100%'
+
+	mkdir /live-media
+	if which fsck > /dev/null
+	then
+		test "${PERSIST_FS}" = tmpfs || fsck -y $(resolve_device ${PERSIST_DEV})
+	fi
+	mount -t ${PERSIST_FS} -o ${PERSIST_OPTS} $(resolve_device ${PERSIST_DEV}) /live-media || exit 1
+
+	if parse_cmdline_flag reset
+	then
+		touch /live-media/do-not-delete
+		sh -c "/usr/local/bin/find /live-media ! -type d ! -path '/live-media/do-not-delete' ! -path '/live-media/cdrom/*' $(printf "! -path '/live-media/upperdir%s' " $(cat /live-media/do-not-delete)) -delete"
+		sh -c "/usr/local/bin/find /live-media   -type d -empty                              ! -path '/live-media/cdrom/*' $(printf "! -path '/live-media/upperdir%s' " $(cat /live-media/do-not-delete)) -delete"
+	fi
+
+	mkdir -p /live-media/cdrom
+	if test -n "${MEDIA_DEV}" && test -n "$(resolve_device ${MEDIA_DEV})"
+	then
+		if which fsck > /dev/null
+		then
+			fsck -y $(resolve_device ${MEDIA_DEV})
+		fi
+		mount -t ${MEDIA_FS} -o ${MEDIA_OPTS} $(resolve_device ${MEDIA_DEV}) /live-media/cdrom || exit 1
+	fi
+
+	if parse_cmdline_flag toram
+	then
+		mkdir -p /live-media/toram/$PREFIX
+		/usr/local/bin/find /live-media/cdrom/$PREFIX -maxdepth 1 -type f -name '*.squashfs' -exec cp {} /live-media/toram/$PREFIX \;
+		umount /live-media/cdrom
+		rm -Rf /live-media/cdrom
+		mv /live-media/toram /live-media/cdrom
+	fi
+
+	local LOWERDIR=
+	for SQUASHFS in $(/usr/local/bin/find /live-media/cdrom/$PREFIX -maxdepth 1 -type f -name '*.squashfs' -exec basename {} \; | sort)
+	do
+		mkdir -p /live-media/lowerdirs/$SQUASHFS
+		mount -t squashfs /live-media/cdrom/$PREFIX/$SQUASHFS /live-media/lowerdirs/$SQUASHFS
+		test -n "$LOWERDIR" && LOWERDIR="$LOWERDIR:"
+		LOWERDIR=$LOWERDIR/live-media/lowerdirs/$SQUASHFS
+	done
+
+	if test -z "$LOWERDIR"
+	then
+		echo 'squashfs files not found'
+		exit 1
+	fi
+
+	mkdir -p /live-media/upperdir /live-media/workdir
+
+	mount -t overlay -o lowerdir=$LOWERDIR,upperdir=/live-media/upperdir,workdir=/live-media/workdir none $rootmnt
+
+	if ! test -f $rootmnt/var/.preboot
+	then
+		touch $rootmnt/var/.preboot
+
+		cp -a /patch/. $rootmnt/
+
+		chroot $rootmnt /usr/local/etc/preboot > $rootmnt/var/log/live.log 2>&1
+	fi
+
+	rm -Rf /patch
+
+	mkdir -p $rootmnt/live-media
+	mount -o move /live-media $rootmnt/live-media
+}

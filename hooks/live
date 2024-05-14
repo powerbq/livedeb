@@ -1,0 +1,56 @@
+#!/bin/sh -e
+
+PREREQS=""
+
+prereqs()
+{
+	echo "$PREREQS"
+}
+
+# copied from casper ubuntu package
+casper() {
+	manual_add_modules overlay
+
+	# squashfs
+	manual_add_modules squashfs
+	manual_add_modules loop
+
+	# random file system modules
+	manual_add_modules vfat
+	manual_add_modules ext3
+	manual_add_modules ext4
+	manual_add_modules btrfs
+	# needed for vfat. :-/
+	manual_add_modules nls_cp437
+	manual_add_modules nls_utf8
+	manual_add_modules nls_iso8859-1
+
+	# cdrom modules
+	manual_add_modules sr_mod
+	manual_add_modules ide-cd
+	manual_add_modules sbp2
+	manual_add_modules ohci1394
+}
+
+case "$1" in
+	prereqs)
+		prereqs
+		exit 0
+	;;
+esac
+
+. /usr/share/initramfs-tools/hook-functions
+
+casper
+
+copy_exec /usr/bin/find /usr/local/bin/find
+copy_exec /sbin/fsck
+copy_exec /sbin/fsck.ext4
+copy_exec /sbin/fsck.fat
+copy_exec /sbin/fsck.vfat
+
+SOURCE=/usr/local/live/patch/
+for FILE in $(find $SOURCE -type f | sed "s|^$SOURCE||")
+do
+	copy_file patch $SOURCE/$FILE /patch/$FILE
+done

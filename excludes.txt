@@ -1,0 +1,13 @@
+.dockerenv
+etc/hosts
+etc/resolv.conf
+
+usr/local/src/build
+var/cache/apt/archives/*.deb
+
+dev/*
+proc/*
+root/*
+run/*
+sys/*
+tmp/*

@@ -1,0 +1,26 @@
+#!/bin/bash
+
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
+export HOME=/root
+export LC_ALL=C
+
+# DEFAULT
+export TIMEZONE=Europe/London
+export HOSTNAME=ubuntu
+export LOCALE=ru_UA
+export USERID=3219
+export USERNAME=live
+export PASSWORD=evil
+export HASHED_PASSWORD=
+
+# FLAGS
+export AUTOLOGIN=yes
+export WAYLAND=no
+export ENABLE_SSH=no
+
+# CUSOMIZATION
+export OVERRIDE=/usr/local/etc/live.d/config.override
+
+if test -f ${OVERRIDE}; then
+	source ${OVERRIDE}
+fi

@@ -1,0 +1,11 @@
+version: '3.6'
+
+services:
+  debian:
+    build:
+      context: .
+      network: host
+    network_mode: host
+    volumes:
+      - ./out:/usr/local/src/build/out
+      - ./pkg-system:/var/cache/apt/archives
